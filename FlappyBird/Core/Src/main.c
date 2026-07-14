@@ -92,6 +92,8 @@ const osThreadAttr_t GUI_Task_attributes = {
 
 /* USER CODE BEGIN PV */
 uint8_t isRevD = 0; /* Applicable only for STM32F429I DISCOVERY REVD and above */
+osMessageQueueId_t birdQueueHandle;
+osMessageQueueId_t buzzerQueueHandle;
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -205,6 +207,11 @@ int main(void)
 
   /* USER CODE BEGIN RTOS_QUEUES */
   /* add queues, ... */
+  birdQueueHandle = osMessageQueueNew(5, sizeof(uint8_t), NULL);
+    if (birdQueueHandle == NULL) {
+        Error_Handler();
+    }
+    buzzerQueueHandle = osMessageQueueNew(5, sizeof(uint8_t), NULL);
   /* USER CODE END RTOS_QUEUES */
 
   /* Create the thread(s) */
@@ -630,12 +637,23 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
   HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
 
+  GPIO_InitStruct.Pin = GPIO_PIN_0;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
+  GPIO_InitStruct.Pull = GPIO_PULLDOWN;
+  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
+
   GPIO_InitStruct.Pin = GPIO_PIN_6;
   GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
   GPIO_InitStruct.Pull = GPIO_PULLDOWN;
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
   HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
 
+  GPIO_InitStruct.Pin = GPIO_PIN_7;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
+  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_7, GPIO_PIN_RESET);
 
   /*Configure GPIO pins : PD12 PD13 */
   GPIO_InitStruct.Pin = GPIO_PIN_12|GPIO_PIN_13;
@@ -659,6 +677,21 @@ static void MX_GPIO_Init(void)
   * @retval None
   */
 
+void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
+{
+  if (GPIO_Pin == GPIO_PIN_0)
+  {
+    static uint32_t last_tick = 0;
+    uint32_t current_tick = HAL_GetTick();
+
+    if (current_tick - last_tick > 150)
+    {
+      uint8_t buttonPressed = 1;
+      osMessageQueuePut(birdQueueHandle, &buttonPressed, 0, 0);
+    }
+    last_tick = current_tick;
+  }
+}
 
 static void BSP_SDRAM_Initialization_Sequence(SDRAM_HandleTypeDef *hsdram, FMC_SDRAM_CommandTypeDef *Command)
 {
@@ -989,13 +1022,42 @@ void LCD_Delay(uint32_t Delay)
 void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN 5 */
+//  uint8_t rxCmd = 0;
+//  uint8_t jumpCmd = 1;
+//  uint32_t lastJumpTick = 0;
+//
 //  /* Infinite loop */
   for(;;)
   {
+	  osDelay(osWaitForever);
+//      if (osMessageQueueGet(birdQueueHandle, &rxCmd, NULL, osWaitForever) == osOK)
+//      {
+//          uint32_t currentTick = osKernelGetTickCount();
+//
+//          if (currentTick - lastJumpTick > 150)
+//          {
+//              osMessageQueuePut(birdQueueHandle, &jumpCmd, 0, 0);
+//              lastJumpTick = currentTick;
+//          }
+//      }
   }
   /* USER CODE END 5 */
 }
 
+void StartBuzzerTask(void *argument)
+  {
+    uint8_t cmd;
+    for(;;)
+    {
+    	if (osMessageQueueGet(buzzerQueueHandle, &cmd, NULL, osWaitForever) == osOK) {
+    	            if (cmd == 1) {
+    	                HAL_GPIO_WritePin(GPIOD, GPIO_PIN_7, GPIO_PIN_SET);
+    	                osDelay(500);
+    	                HAL_GPIO_WritePin(GPIOD, GPIO_PIN_7, GPIO_PIN_RESET);
+    	            }
+    	        }
+    }
+  }
 
 /**
   * @brief  Period elapsed callback in non blocking mode
